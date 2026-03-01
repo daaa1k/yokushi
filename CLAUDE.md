@@ -131,3 +131,33 @@ rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 
 Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
+
+## Documentation
+All code comments, doc comments (`///`), and user-facing messages MUST be in English.
+
+## Project: yokushi
+Rust CLI hook tool for AI coding agents. Reads hook JSON from stdin, matches tool/command
+against YAML-configured suppression rules, and outputs a block decision per agent format.
+
+- Entry: `src/main.rs` — stdin orchestration, CLI parsing
+- `src/config.rs` — YAML config loading, rule/agent structs
+- `src/hook.rs` — Hook input types (serde)
+- `src/matcher.rs` — Regex + literal fallback matching
+- `src/output.rs` — OutputMode (Json/Exit), block/allow functions
+
+## Build & Install
+```bash
+rtk cargo build
+cargo install --path .
+```
+
+## Test
+```bash
+rtk cargo test
+```
+
+## Verify manually
+```bash
+echo '{"tool_name":"Bash","hook_event_name":"PreToolUse","tool_input":{"command":"git push origin main"}}' \
+  | yokushi --agent claude-code --config config.example.yaml
+```
