@@ -1,0 +1,274 @@
+Implement the following plan:
+
+# Plan: yokushi - AI Agent Hook Tool
+
+## Context
+
+Build a Rust binary `yokushi` (抑止 = suppress/deter) that acts as a `PreToolUse` hook
+for AI coding agents (Claude Code, OpenCode, etc.). When an agent attempts to use a tool,
+the hook validates against user-configured suppression rules and blocks matches with a
+clear reason. Output behavior is configurable per agent type.
+
+Reference pattern: https://zenn.dev/kawarimidoll/articles/7da5fd40f19fb1
+
+---
+
+## Project Structure
+
+```
+yokushi/
+├── CLAUDE.md              ← update: add English doc requirement + project info
+├── Cargo.toml
+├── src/
+│   ├── main.rs            ← CLI entry, stdin/stdout orchestration
+│   ├── config.rs          ← YAML config loading (Config, AgentConfig, Rule)
+│   ├── hook.rs            ← Hook input/output types (serde_json::Value for flexibility)
+│   ├── matcher.rs         ← Rule matching logic (regex + literal fallback)
+│   └── output.rs          ← Agent-specific output strategies (JSON vs stderr+exit2)
+└── config.example.yaml   ← Example configuration
+```
+
+---
+
+## Hook Protocol
+
+**Input** (stdin JSON from any agent):
+```json
+{
+  "session_id": "...",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "git push origin main" }
+}
+```
+
+**Block - Claude Code** (stdout JSON, exit 0):
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Command suppressed (pattern: 'git push'): ..."
+  }
+}
+```
+
+**Block - default** (stderr, exit 2):
+```
+yokushi: blocked by rule 'git push': Direct git push is prohibited.
+```
+
+**Allow**: no output, exit 0.
+
+---
+
+## Config Format (`yokushi.yaml`)
+
+```yaml
+version: "1"
+
+# Agent-specific output behavior
+agents:
+  claude-code:
+    output: json          # JSON to stdout + exit 0 (Claude Code official format)
+  default:
+    output: exit          # message to stderr + exit 2 (works with most agents)
+
+# Suppression rules
+rules:
+  # Bash tool (default when tool is omitted)
+  - pattern: "git push"
+    message: "Direct git push is prohibited. Please use pull requests."
+
+  - pattern: "\\bawk\\b"
+    message: "Use of 'awk' is prohibited. Use 'rg' instead."
+
+  # Other tool types
+  - tool: "Write"
+    # field defaults to "file_path" for Write/Edit/Read tools
+    pattern: "\\.env$"
+    message: "Writing to .env files is prohibited."
+
+  - tool: "WebFetch"
+    # field defaults to "url" for WebFetch
+    pattern: "example\\.com"
+    message: "Access to example.com is restricted."
+```
+
+**Config discovery order** (first found wins):
+1. `--config <path>` CLI flag
+2. `YOKUSHI_CONFIG` environment variable
+3. `./yokushi.yaml` (current directory)
+4. `~/.config/yokushi/config.yaml`
+
+If no config found → allow all (silent exit 0)
+
+---
+
+## Data Structures
+
+### `config.rs`
+
+```rust
+pub struct Rule {
+    pub tool: Option<String>,    // default: "Bash"
+    pub field: Option<String>,   // default: auto-detected per tool
+    pub pattern: String,
+    pub message: String,
+}
+
+pub struct AgentConfig {
+    pub output: OutputMode,      // json | exit
+}
+
+pub struct Config {
+    pub agents: HashMap<String, AgentConfig>,
+    pub rules: Vec<Rule>,
+}
+```
+
+### `hook.rs`
+
+```rust
+pub struct HookInput {
+    pub hook_event_name: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<serde_json::Value>,  // flexible, not typed per tool
+}
+```
+
+### `output.rs`
+
+```rust
+pub enum OutputMode { Json, Exit }
+
+pub trait OutputStrategy {
+    fn block(&self, event: &str, reason: &str) -> !;
+    fn allow(&self) -> !;
+}
+
+// ClaudeCodeOutput: stdout JSON + exit 0
+// DefaultOutput: stderr + exit 2
+```
+
+---
+
+## Field Defaults Per Tool
+
+```rust
+fn default_field(tool: &str) -> &str {
+    match tool {
+        "Bash" => "command",
+        "Write" | "Edit" | "Read" | "Glob" | "Grep" => "file_path",
+        "WebFetch" => "url",
+        "WebSearch" => "query",
+        "Task" => "prompt",
+        _ => "command",
+    }
+}
+```
+
+---
+
+## CLI
+
+```
+Usage: yokushi [OPTIONS]
+
+Options:
+  -c, --config <FILE>    Path to YAML config file
+  -a, --agent <NAME>     Agent type for output format [default: "default"]
+  -h, --help             Print help
+  -V, --version          Print version
+```
+
+**Usage in Claude Code** (`~/.claude/settings.json`):
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{"type": "command", "command": "yokushi --agent claude-code"}]
+    }]
+  }
+}
+```
+
+---
+
+## Cargo.toml Dependencies
+
+```toml
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+```
+
+---
+
+## CLAUDE.md Additions
+
+```markdown
+## Documentation
+All code comments, doc comments (///), and user-facing documentation MUST be in English.
+
+## Project: yokushi
+Rust CLI hook tool for AI coding agents. Suppresses specific tool/command usage
+based on YAML rules. Reads hook JSON from stdin, outputs block decision per agent format.
+
+## Build & Install
+cargo build --release
+cargo install --path .
+
+## Test
+cargo test
+```
+
+---
+
+## Verification
+
+```bash
+# Build
+cargo build
+
+# Test: block git push (Claude Code format)
+echo '{"tool_name":"Bash","hook_event_name":"PreToolUse","tool_input":{"command":"git push origin main"}}' \
+  | yokushi --agent claude-code --config config.example.yaml
+# → JSON with permissionDecision: "deny"
+
+# Test: allow safe command
+echo '{"tool_name":"Bash","hook_event_name":"PreToolUse","tool_input":{"command":"cargo build"}}' \
+  | yokushi --agent claude-code --config config.example.yaml
+# → no output, exit 0
+
+# Test: block Write to .env (default output)
+echo '{"tool_name":"Write","hook_event_name":"PreToolUse","tool_input":{"file_path":"/project/.env"}}' \
+  | yokushi --config config.example.yaml
+# → stderr message, exit 2
+
+# Run tests
+cargo test
+```
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/daichikinoshita/.claude/projects/-Users-daichikinoshita-Projects-yokushi/d8b045d8-6d1b-4438-8543-1bea896e730c.jsonl
+
+---
+
+適切な粒度でコミットしてください
+
+---
+
+[Request interrupted by user]
+
+---
+
+適切な粒度でコミットしてください
