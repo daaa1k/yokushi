@@ -1,0 +1,22 @@
+[package]
+name = "yokushi"
+version = "0.1.0"
+edition = "2021"
+description = "AI agent hook tool that suppresses specific tool/command usage based on YAML rules"
+license = "MIT"
+
+[[bin]]
+name = "yokushi"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
