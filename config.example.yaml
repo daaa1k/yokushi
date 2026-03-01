@@ -1,0 +1,34 @@
+version: "1"
+
+# Agent-specific output behavior.
+# Use "json" for Claude Code (stdout JSON + exit 0).
+# Use "exit" for generic agents (stderr + exit 2).
+agents:
+  claude-code:
+    output: json
+  default:
+    output: exit
+
+# Suppression rules (matched in order; first match wins).
+rules:
+  # Bash tool rules (default when "tool" is omitted)
+  - pattern: "git push"
+    message: "Direct git push is prohibited. Please use pull requests."
+
+  - pattern: "\\bawk\\b"
+    message: "Use of 'awk' is prohibited. Use 'rg' instead."
+
+  - pattern: "rm\\s+-rf\\s+/"
+    message: "Recursive force-delete from root is prohibited."
+
+  # Write tool: block writes to .env files
+  - tool: "Write"
+    # "field" defaults to "file_path" for Write/Edit/Read tools
+    pattern: "\\.env$"
+    message: "Writing to .env files is prohibited."
+
+  # WebFetch tool: block access to specific domains
+  - tool: "WebFetch"
+    # "field" defaults to "url" for WebFetch
+    pattern: "example\\.com"
+    message: "Access to example.com is restricted."
