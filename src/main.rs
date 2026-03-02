@@ -64,10 +64,7 @@ fn main() -> Result<()> {
     };
 
     // Try to find a matching suppression rule
-    let event_name = input
-        .hook_event_name
-        .as_deref()
-        .unwrap_or("PreToolUse");
+    let event_name = input.hook_event_name.as_deref().unwrap_or("PreToolUse");
 
     if let Some(m) = matcher::find_match(&cfg.rules, &input) {
         let reason = format!(
