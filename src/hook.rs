@@ -29,10 +29,7 @@ impl HookInput {
     /// Extracts the string value of `field` from tool_input.
     /// Returns `None` if tool_input is absent or the field is not a string.
     pub fn get_field(&self, field: &str) -> Option<&str> {
-        self.tool_input
-            .as_ref()?
-            .get(field)?
-            .as_str()
+        self.tool_input.as_ref()?.get(field)?.as_str()
     }
 }
 
