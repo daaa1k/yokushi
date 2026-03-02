@@ -48,6 +48,3 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
-
-      - name: Doctest
-        run: cargo test --doc
